@@ -155,7 +155,8 @@ export function resolve(ds: Dataset, s: Settings, ctx: Context): {e: Settings; w
   if (!PROJECTIONS[ds.region].some(([p]) => p === e.projection)) e.projection = PROJECTIONS[ds.region][0][0];
 
   // Web map tiles are Web Mercator: they only line up with the Mercator projection.
-  if (e.projection !== 'mercator') for (const b of ['osm', 'light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'Web map tiles use Web Mercator. Choose the Mercator projection.');
+  if (e.mapType === 'cartogram') for (const b of ['osm', 'light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'Cartograms move and resize areas, so a street map underneath would show false locations.');
+  else if (e.projection !== 'mercator') for (const b of ['osm', 'light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'Web map tiles use Web Mercator. Choose the Mercator projection.');
   else if (!ctx.cartoKey) for (const b of ['light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'CARTO tiles need a free API key (VITE_CARTO_KEY, see README). OSM works without one.');
   if (why.get(`basemap:${e.basemap}`)) e.basemap = 'none';
   return {e, why};

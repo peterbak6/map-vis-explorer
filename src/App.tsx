@@ -105,8 +105,9 @@ function Explorer({loaded: raw, s, setS, onBusy}: {loaded: Loaded; s: Settings; 
         <Group title="Map type" cards items={MAP_TYPES} value={t} reason={reason('mapType')} onChange={v => set('mapType', v as MapType)} />
         <Group title="Variant" cards items={VARIANTS[t]} value={e.variant[t]} reason={reason('variant')} onChange={v => setS(p => ({...p, variant: {...p.variant, [t]: v}}))} />
 
+        {!why.get('time:') && <>
         <div className="eyebrow">TIME</div>
-        <fieldset className={why.get('time:') ? 'inactive' : ''}>
+        <fieldset>
           <legend>Days</legend>
           <div className="segments days">
             {DAYS.map((d, i) => <Choice key={d} label={d} active={e.days.includes(i)} hint={why.get('time:') ?? ''}
@@ -120,11 +121,14 @@ function Explorer({loaded: raw, s, setS, onBusy}: {loaded: Loaded; s: Settings; 
         </fieldset>
         <Slider label="From" value={e.hours[0]} min={0} max={23} step={1} format={v => `${String(v).padStart(2, '0')}:00`} onChange={v => set('hours', [v, Math.max(v + 1, e.hours[1])])} disabled={why.get('time:')} />
         <Slider label="To" value={e.hours[1]} min={1} max={24} step={1} format={v => `${String(v).padStart(2, '0')}:00`} onChange={v => set('hours', [Math.min(e.hours[0], v - 1), v])} disabled={why.get('time:')} />
+        </>}
 
+        {t === 'flow' && <>
         <div className="eyebrow">FLOW</div>
         <Group title="Selected station" items={[['both', 'Both'], ['out', 'Leaving'], ['in', 'Arriving']]} value={e.flowDirection} reason={v => why.get(`flow:${v}`) ?? ''} onChange={v => set('flowDirection', v)} />
         <Group title="Mode" items={[['gross', 'Gross'], ['net', 'Net']]} value={e.flowMode} reason={v => why.get(`flow:${v}`) ?? ''} onChange={v => set('flowMode', v)} />
-        <Slider label="Top flows" value={e.topN} min={10} max={1000} step={10} onChange={v => set('topN', v)} disabled={t === 'flow' ? undefined : 'Applies to Flow.'} />
+        <Slider label="Top flows" value={e.topN} min={10} max={1000} step={10} onChange={v => set('topN', v)} />
+        </>}
 
         <div className="eyebrow">AGGREGATION</div>
         <Group title="Level" items={ds.levels.map(l => [l.id, l.label] as [string, string])} value={e.level} reason={() => ''} onChange={v => set('level', v)} note={`${unitCounts[e.level]?.toLocaleString('en')} units`} />
@@ -146,20 +150,23 @@ function Explorer({loaded: raw, s, setS, onBusy}: {loaded: Loaded; s: Settings; 
         <fieldset><legend>Palette</legend><Palettes value={e.palette} reason={id => why.get(`palette:${id}`) ?? ''} onChange={v => set('palette', v)} /></fieldset>
         <Group title="Midpoint" items={[['median', 'Median'], ['mean', 'Mean'], ['zero', 'Zero']]} value={e.midpoint} reason={reason('midpoint')} onChange={v => set('midpoint', v)} />
 
+        {(sizeUsed || t === 'flow') && <>
         <div className="eyebrow">SIZE</div>
-        <fieldset className={sizeUsed || t === 'flow' ? '' : 'inactive'}>
+        <fieldset>
           <legend>Size measure</legend>
           <select className="measure-select" value={t === 'flow' ? '__trips' : e.sizeMeasure} disabled={!sizeUsed} onChange={ev => set('sizeMeasure', ev.target.value)}>
             {t === 'flow' && <option value="__trips">Trips</option>}
             {t !== 'flow' && <option value="" disabled={!!why.get('size:')}>Fixed size</option>}
             {t !== 'flow' && ds.measures.map(m => <option key={m.id} value={m.id} disabled={!!why.get(`size:${m.id}`)}>{m.label}</option>)}
           </select>
-          {!sizeUsed && t !== 'flow' && <span className="reason">Size applies to Symbol, Cartogram and Flow maps.</span>}
         </fieldset>
-        <Slider label={t === 'flow' ? 'Max width' : 'Max size'} value={e.maxSize} min={4} max={60} step={1} format={v => `${v}px`} onChange={v => set('maxSize', v)} disabled={sizeUsed || t === 'flow' ? undefined : 'Size applies to Symbol, Cartogram and Flow maps.'} />
+        <Slider label={t === 'flow' ? 'Max width' : 'Max size'} value={e.maxSize} min={4} max={60} step={1} format={v => `${v}px`} onChange={v => set('maxSize', v)} />
+        </>}
 
-        <div className="eyebrow sp">PARAMETERS</div>
-        <Slider label={e.variant.heatmap === 'pixel' ? 'Bandwidth' : 'Cell size'} value={e.cellSize} min={6} max={60} step={1} format={v => `${v}px`} onChange={v => set('cellSize', v)} disabled={t === 'heatmap' ? undefined : 'Applies to Heatmap.'} />
+        {t === 'heatmap' && <>
+        <div className="eyebrow">HEATMAP</div>
+        <Slider label={e.variant.heatmap === 'pixel' ? 'Bandwidth' : 'Cell size'} value={e.cellSize} min={6} max={60} step={1} format={v => `${v}px`} onChange={v => set('cellSize', v)} />
+        </>}
 
 
         <div className="eyebrow sp">APPEARANCE</div>

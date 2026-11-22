@@ -74,6 +74,9 @@ test('availability rules explain disabled options', () => {
   assert.equal(h.e.measure, 'pop');
   const sz = resolve(ds, {...s, mapType: 'cartogram', sizeMeasure: 'share'}, {unitCounts: {unit: 3, grp: 1}});
   assert.equal(sz.e.sizeMeasure, 'pop');
+  const cg = resolve(ds, {...s, mapType: 'cartogram', projection: 'mercator', basemap: 'osm'}, {unitCounts: {unit: 3, grp: 1}});
+  assert.equal(cg.e.basemap, 'none');
+  assert.match(cg.why.get('basemap:osm')!, /Cartograms/);
   const lg = resolve(ds, {...s, classing: 'equal', scale: 'log'}, {unitCounts: {unit: 3}, minValue: 0});
   assert.equal(lg.e.scale, 'linear');
 });

@@ -42,6 +42,8 @@ Five map type cards. Each has variant cards that appear only for that type.
 | **Flow** | Straight · Arc · Arrow | a flow table | OD lines at the chosen level, width ← trips, color ← volume. Top-N filter and self-flow exclusion |
 
 Availability rules (each with a visible reason):
+- A section whose controls all do not apply is hidden (Time for datasets without time; Flow, Size and Heatmap sections outside their map types). Single options that do not apply stay visible and disabled with a reason.
+- Basemap tiles are disabled for cartograms (they would suggest false locations) and outside Mercator.
 - Datasets can switch controls off in their description (`unavailable`), with a reason.
 - Time is disabled for datasets without weekday-hour slots.
 - From/To selected need a selected node; Net needs Direction All.
