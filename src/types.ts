@@ -1,40 +1,65 @@
 import type {Feature, MultiPolygon, Polygon} from 'geojson';
 
-/** One dataset file in public/data/<id>.json (see DESIGN.md → Datasets). */
-export interface DatasetFile {
+/** Shared description of a dataset (see DATA.md). */
+interface DatasetCommon {
   id: string;
   title: string;
   subtitle: string;
   region: Region;
   geometry: 'areas' | 'points';
-  /** Base map: a TopoJSON file in public/data. For area datasets `object` holds the feature polygons. */
-  base: {file: string; object: string; outline?: string};
-  /** Raw numeric fields, in the order of each feature's `v` array. */
+  /** Numeric feature properties used by measures. */
   fields: string[];
   levels: LevelDef[];
-  parentNames?: Record<string, Record<string, string>>;
   measures: MeasureDef[];
   /** Party or group names for category measures, keyed by field. */
   categories?: Record<string, {label: string; color?: string}>;
-  features: RawFeature[];
-  /** Origin–destination table: [originFeatureId, destinationFeatureId, ...values in flowFields order]. */
-  flowFields?: string[];
-  flows?: [string, string, ...number[]][];
-  defaults?: {measure?: string; sizeMeasure?: string};
+  defaults?: {measure?: string; sizeMeasure?: string; projection?: string; basemap?: Basemap};
+  /** Flows carry values per weekday-hour slot (slot = weekday × 24 + hour, weekday 0 = Monday). */
+  time?: {slots: string; slotFields: string[]; basis: string};
+  /** Feature fields recomputed from (time-filtered) flows: `out:`, `in:`, `self:` or `net:` + slot field. */
+  flowDerived?: Record<string, string>;
+  /** Controls this dataset does not support, keyed `control:value`, with the reason shown to students. */
+  unavailable?: Record<string, string>;
   source: string;
   attribution: string;
   note?: string;
 }
 
-export type Region = 'us' | 'nyc' | 'israel';
+/**
+ * Dataset description file public/data/<id>.json. Geometry and values live in standard GeoJSON
+ * (RFC 7946) files it references.
+ */
+export interface DatasetMeta extends DatasetCommon {
+  /** GeoJSON FeatureCollection of Points or (Multi)Polygons; numeric `fields` are feature properties. */
+  features: string;
+  /** Optional GeoJSON FeatureCollection of LineStrings with `origin`, `destination` and `flowField` properties. */
+  flows?: string;
+  flowField?: string;
+  /** Optional GeoJSON drawn as context and used to clip derived geometry (e.g. land or a city boundary). */
+  base?: string;
+  /** Optional GeoJSON whose boundaries are drawn above choropleths (e.g. states). */
+  outline?: string;
+}
+
+/** A dataset after loading: the in-memory model the pipeline works on. */
+export interface Dataset extends DatasetCommon {
+  features: RawFeature[];
+  flows?: FlowRow[];
+  parentNames?: Record<string, Record<string, string>>;
+}
+
+/** One origin–destination pair: total volume and, when the dataset has time, rows [slot, ...slotFields]. */
+export interface FlowRow { o: string; d: string; n: number; slots?: number[][] }
+
+export type Region = 'us' | 'bergen' | 'israel';
 
 export interface LevelDef {
   id: string;
   label: string;
   /** Key in feature.parents used to group finer features. Absent for the finest level. */
   parent?: string;
-  /** TopoJSON object with native polygons for this level (area datasets). */
-  object?: string;
+  /** GeoJSON file with polygons for this level's units, ids matching the parent key (area datasets). */
+  features?: string;
   /** Point datasets: snap to a square grid of this size (metres) instead of a named parent. */
   cluster?: number;
 }
@@ -93,6 +118,10 @@ export type ScaleKind = 'linear' | 'log' | 'sqrt';
 export type Normalize = 'none' | 'area';
 export type Midpoint = 'median' | 'mean' | 'zero';
 export type Outline = 'none' | 'thin' | 'bold';
+/** Flows of the selected station: both directions, leaving it, or arriving at it. */
+export type FlowDirection = 'both' | 'out' | 'in';
+export type FlowMode = 'gross' | 'net';
+export type Basemap = 'none' | 'osm' | 'light' | 'dark' | 'voyager';
 
 export interface Settings {
   mapType: MapType;
@@ -112,5 +141,12 @@ export interface Settings {
   topN: number; // flow
   opacity: number;
   outline: Outline;
+  /** Time filter (datasets with `time`): weekdays 0–6 (Mon–Sun) and hours [from, to). */
+  days: number[];
+  hours: [number, number];
+  flowDirection: FlowDirection;
+  flowMode: FlowMode;
+  /** Web map tiles under the data (Mercator only). */
+  basemap: Basemap;
   projection: string;
 }

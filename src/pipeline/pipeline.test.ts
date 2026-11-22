@@ -5,9 +5,9 @@ import {breaks, jenks} from './classify.ts';
 import {colorScale} from './color.ts';
 import {initialSettings, resolve} from './options.ts';
 import {gridBins, hexBins, olsonScales, separate, flowPath} from './geometry.ts';
-import type {DatasetFile} from '../types.ts';
+import type {Dataset} from '../types.ts';
 
-const ds: DatasetFile = {
+const ds: Dataset = {
   id: 't', title: 'T', subtitle: '', region: 'us', geometry: 'points', base: {file: '', object: ''},
   fields: ['pop', 'hisp', 'inc'],
   levels: [{id: 'unit', label: 'Unit'}, {id: 'grp', label: 'Group', parent: 'g'}],

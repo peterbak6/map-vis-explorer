@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import type {Feature, MultiPolygon, Polygon} from 'geojson';
-import type {DatasetFile, LevelDef, MeasureDef, RawFeature, Summary, Unit} from '../types.ts';
+import type {Dataset, LevelDef, MeasureDef, RawFeature, Summary, Unit} from '../types.ts';
 
 const EARTH_R = 6371.0088;
 
@@ -19,7 +19,7 @@ export function sumFields(fields: string[], features: RawFeature[]): Record<stri
  * Aggregate the dataset's features to a level.
  * `shapes` maps a unit id to its native polygon (from the base TopoJSON) when available.
  */
-export function aggregate(ds: DatasetFile, level: LevelDef, shapes: Map<string, Feature<Polygon | MultiPolygon>> = new Map()): Unit[] {
+export function aggregate(ds: Dataset, level: LevelDef, shapes: Map<string, Feature<Polygon | MultiPolygon>> = new Map()): Unit[] {
   const groups = d3.group(ds.features, f => groupKey(level, f));
   const units: Unit[] = [];
   for (const [id, members] of groups) {
@@ -50,13 +50,13 @@ function groupKey(level: LevelDef, f: RawFeature): string | null {
   return f.parents?.[level.parent] ?? null;
 }
 
-function unitName(ds: DatasetFile, level: LevelDef, id: string, members: RawFeature[]): string {
+function unitName(ds: Dataset, level: LevelDef, id: string, members: RawFeature[]): string {
   if (!level.parent && !level.cluster) return members[0].name;
   if (level.parent) return ds.parentNames?.[level.parent]?.[id] ?? `${level.label} ${id}`;
   return members.length === 1 ? members[0].name : `${members[0].name} + ${members.length - 1} more`;
 }
 
-function weightedCenter(ds: DatasetFile, members: RawFeature[]): [number, number] {
+function weightedCenter(ds: Dataset, members: RawFeature[]): [number, number] {
   const pts = members.filter(m => m.lon != null && m.lat != null);
   if (!pts.length) return [NaN, NaN];
   // Weight by the first field (a count in every dataset contract); fall back to equal weights.
@@ -80,7 +80,7 @@ export const SUMMARY_LABELS: Record<Summary, string> = {
 };
 
 /** Displayed value of a measure for one unit. Category measures return the index of the leading part. */
-export function measureValue(ds: DatasetFile, m: MeasureDef, u: Unit, summary: Summary): number | null {
+export function measureValue(ds: Dataset, m: MeasureDef, u: Unit, summary: Summary): number | null {
   const fi = (f?: string) => (f ? ds.fields.indexOf(f) : -1);
   const ok = (x: number) => (Number.isFinite(x) ? x : null);
   switch (m.kind) {

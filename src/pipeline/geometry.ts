@@ -10,6 +10,7 @@ export function makeProjection(id: string, fit: FeatureCollection<Geometry> | Fe
     case 'albersUsa': p = d3.geoAlbersUsa() as unknown as d3.GeoProjection; break;
     case 'albers': p = d3.geoConicEqualArea().parallels([29.5, 45.5]).rotate([96, 0]).center([0, 38]); break;
     case 'tm': p = d3.geoTransverseMercator().rotate([-35.2045, -31.7344]); break;
+    case 'utm': p = d3.geoTransverseMercator().rotate([-9, 0]); break; // UTM zone 32 central meridian
     case 'equirect': p = d3.geoEquirectangular(); break;
     default: p = d3.geoMercator();
   }

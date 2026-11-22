@@ -66,3 +66,30 @@ aside.busy{opacity:.45;pointer-events:none;transition:opacity .15s}
 .progress{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:7px;padding:10px 14px;box-shadow:0 3px 14px #44332214;display:flex;flex-direction:column;gap:7px;min-width:250px;font-size:12px;color:#625d58;z-index:4}
 .progress i{display:block;height:4px;background:#f0ece7;border-radius:2px;overflow:hidden}
 .progress b{display:block;height:100%;background:var(--accent);transition:width .2s}
+
+/* Desktop: the control panel and the view scroll independently; the page itself does not scroll. */
+@media(min-width:761px){
+  html,body,#root{height:100%}
+  body{overflow:hidden}
+  .workspace{height:calc(100dvh - 64px);min-height:0}
+  aside,main{overflow-y:auto;overscroll-behavior:contain;min-height:0}
+}
+
+.segments.days .choice button{min-height:34px}
+.segments.presets{margin-top:4px}
+.segments.presets .choice button{min-height:28px}
+
+.legend svg.exact{width:300px;max-width:none}
+.map-chip{position:absolute;left:14px;top:14px;z-index:3;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.95);border:1px solid var(--border);border-radius:16px;padding:6px 8px 6px 12px;font-size:12px;color:#625d58;box-shadow:0 2px 8px #44332210}
+.map-chip b{color:var(--accent);font-weight:600}
+.map-chip button{border:0;background:#f1eee9;border-radius:50%;width:20px;height:20px;line-height:18px;padding:0;color:#625d58;font-size:14px}
+.map-chip button:hover{background:#fceee7;color:var(--accent)}
+
+.attribution{position:absolute;right:6px;bottom:6px;z-index:2;font-size:10px;background:rgba(255,255,255,.85);padding:2px 6px;border-radius:3px;display:flex;gap:6px}
+.attribution a{color:#625d58;text-decoration:none}
+.attribution a:hover{text-decoration:underline}
+.chart-host .tiles image{image-rendering:auto}
+.chart-host .tiles.muted{filter:grayscale(1) contrast(.85) brightness(1.12);opacity:.75}
+
+/* Credit line at the foot of the control panel. */
+.data-source-link{font-size:10px;line-height:1.6;color:#918b85;margin:6px 0 0}

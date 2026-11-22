@@ -43,7 +43,8 @@ export function SizeLegendView({size, title}: {size: SizeLegend; title: string})
   return (
     <div className="legend">
       <div className="legend-title">{title}</div>
-      <svg viewBox={`0 0 300 ${H + 16}`} role="img" aria-label="Size legend">
+      {/* Drawn at the map's own pixel scale (no CSS stretching) so sizes match the marks at 1× zoom. */}
+      <svg className="exact" width={300} height={H + 16} viewBox={`0 0 300 ${H + 16}`} role="img" aria-label="Size legend">
         {size.items.map((d, i) => {
           const w = size.kind === 'width' ? 46 : d.size * 2;
           const cx = x + w / 2; x += w + 46;

@@ -4,7 +4,8 @@ import type {MapType, Settings, Unit} from './types.ts';
 import {aggregate, measureValue, SUMMARY_LABELS, summariesFor} from './pipeline/aggregate.ts';
 import {initialSettings, MAP_TYPES, PROJECTIONS, resolve, VARIANTS} from './pipeline/options.ts';
 import {formatValue} from './pipeline/scene.ts';
-import {Group, Palettes, Slider} from './ui/Controls.tsx';
+import {applyTime, DAYS} from './pipeline/time.ts';
+import {Choice, Group, Palettes, Slider} from './ui/Controls.tsx';
 import {ColorLegend, SizeLegendView} from './ui/Legend.tsx';
 import {MapView, useScene} from './ui/MapView.tsx';
 
@@ -25,7 +26,7 @@ export default function App() {
     loadDataset(entry).then(l => {
       setLoaded(l);
       // Keep encoding choices across datasets; reset what is dataset-specific.
-      setSettings(prev => { const init = initialSettings(l.ds); return prev ? {...prev, level: init.level, measure: init.measure, sizeMeasure: init.sizeMeasure, projection: init.projection, variant: {...prev.variant, choropleth: init.variant.choropleth}} : init; });
+      setSettings(prev => { const init = initialSettings(l.ds); return prev ? {...prev, level: init.level, measure: init.measure, sizeMeasure: init.sizeMeasure, projection: init.projection, basemap: init.basemap, variant: {...prev.variant, choropleth: init.variant.choropleth}} : init; });
     }).catch(e => setError(`Could not load ${entry.title}: ${e.message}`));
   }, [manifest, datasetId]);
 
@@ -46,7 +47,10 @@ export default function App() {
   );
 }
 
-function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS: (f: (s: Settings) => Settings) => void; entry: ManifestEntry; onBusy: (b: boolean) => void}) {
+function Explorer({loaded: raw, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS: (f: (s: Settings) => Settings) => void; entry: ManifestEntry; onBusy: (b: boolean) => void}) {
+  // The time filter re-derives flows and flow-based feature fields before anything else.
+  const dayKey = s.days.join(','), hourKey = s.hours.join('-');
+  const loaded = useMemo<Loaded>(() => ({...raw, ds: applyTime(raw.ds, {days: s.days, hours: s.hours})}), [raw, dayKey, hourKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const {ds, shapes} = loaded;
   const [selected, setSelected] = useState<string | null>(null);
   const onSelect = useCallback((id: string | null) => setSelected(id), []);
@@ -56,6 +60,7 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
   // Resolve structure first, then use the displayed values to decide scale availability.
   const first = resolve(ds, s, {unitCounts});
   const units = unitsByLevel[first.e.level];
+  const focus = selected && units.some(u => u.id === selected) ? selected : null;
   const measure = ds.measures.find(m => m.id === first.e.measure)!;
   const minValue = useMemo(() => {
     let min = Infinity;
@@ -66,7 +71,7 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
     }
     return min;
   }, [ds, units, measure, first.e.summary, first.e.normalize]);
-  const resolved = resolve(ds, s, {unitCounts, minValue});
+  const resolved = resolve(ds, s, {unitCounts, minValue, focus, cartoKey: !!import.meta.env.VITE_CARTO_KEY});
   const why = resolved.why;
   // Stable identity: re-renders that don't change settings (hover, selection) must not rebuild the scene.
   const eKey = JSON.stringify(resolved.e);
@@ -81,10 +86,10 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
     const el = hostRef.current!; const ro = new ResizeObserver(([en]) => { const w = Math.round(en.contentRect.width); setSize({w, h: Math.round(Math.max(420, Math.min(760, w * 0.6)))}); });
     ro.observe(el); return () => ro.disconnect();
   }, []);
-  const {path, scene, progress} = useScene(loaded, units, level, e, size);
+  const {path, projection, scene, progress} = useScene(loaded, units, level, e, size, e.mapType === 'flow' ? focus : null);
   const busy = progress != null;
   useEffect(() => onBusy(busy), [busy, onBusy]);
-  useEffect(() => setSelected(null), [ds, e.level, e.mapType]);
+  useEffect(() => setSelected(null), [raw.ds, e.level, e.mapType]); // keep the focus while the time filter changes
 
   const t = e.mapType;
   const sizeUsed = t === 'symbol' || t === 'cartogram';
@@ -99,6 +104,27 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
         <div className="eyebrow">MAP</div>
         <Group title="Map type" cards items={MAP_TYPES} value={t} reason={reason('mapType')} onChange={v => set('mapType', v as MapType)} />
         <Group title="Variant" cards items={VARIANTS[t]} value={e.variant[t]} reason={reason('variant')} onChange={v => setS(p => ({...p, variant: {...p.variant, [t]: v}}))} />
+
+        <div className="eyebrow">TIME</div>
+        <fieldset className={why.get('time:') ? 'inactive' : ''}>
+          <legend>Days</legend>
+          <div className="segments days">
+            {DAYS.map((d, i) => <Choice key={d} label={d} active={e.days.includes(i)} hint={why.get('time:') ?? ''}
+              onClick={() => set('days', e.days.includes(i) ? e.days.filter(x => x !== i) : [...e.days, i].sort())} />)}
+          </div>
+          <div className="segments presets">
+            {([['All', [0, 1, 2, 3, 4, 5, 6]], ['Weekdays', [0, 1, 2, 3, 4]], ['Weekend', [5, 6]]] as [string, number[]][]).map(([label, d]) =>
+              <Choice key={label} label={label} active={e.days.join() === d.join()} hint={why.get('time:') ?? ''} onClick={() => set('days', d)} />)}
+          </div>
+          {why.get('time:') ? <span className="reason">{why.get('time:')}</span> : <span className="reason">{ds.time?.basis}</span>}
+        </fieldset>
+        <Slider label="From" value={e.hours[0]} min={0} max={23} step={1} format={v => `${String(v).padStart(2, '0')}:00`} onChange={v => set('hours', [v, Math.max(v + 1, e.hours[1])])} disabled={why.get('time:')} />
+        <Slider label="To" value={e.hours[1]} min={1} max={24} step={1} format={v => `${String(v).padStart(2, '0')}:00`} onChange={v => set('hours', [Math.min(e.hours[0], v - 1), v])} disabled={why.get('time:')} />
+
+        <div className="eyebrow">FLOW</div>
+        <Group title="Selected station" items={[['both', 'Both'], ['out', 'Leaving'], ['in', 'Arriving']]} value={e.flowDirection} reason={v => why.get(`flow:${v}`) ?? ''} onChange={v => set('flowDirection', v)} />
+        <Group title="Mode" items={[['gross', 'Gross'], ['net', 'Net']]} value={e.flowMode} reason={v => why.get(`flow:${v}`) ?? ''} onChange={v => set('flowMode', v)} />
+        <Slider label="Top flows" value={e.topN} min={10} max={1000} step={10} onChange={v => set('topN', v)} disabled={t === 'flow' ? undefined : 'Applies to Flow.'} />
 
         <div className="eyebrow">AGGREGATION</div>
         <Group title="Level" items={ds.levels.map(l => [l.id, l.label] as [string, string])} value={e.level} reason={() => ''} onChange={v => set('level', v)} note={`${unitCounts[e.level]?.toLocaleString('en')} units`} />
@@ -134,13 +160,15 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
 
         <div className="eyebrow sp">PARAMETERS</div>
         <Slider label={e.variant.heatmap === 'pixel' ? 'Bandwidth' : 'Cell size'} value={e.cellSize} min={6} max={60} step={1} format={v => `${v}px`} onChange={v => set('cellSize', v)} disabled={t === 'heatmap' ? undefined : 'Applies to Heatmap.'} />
-        <Slider label="Top flows" value={e.topN} min={10} max={1000} step={10} onChange={v => set('topN', v)} disabled={t === 'flow' ? undefined : 'Applies to Flow.'} />
+
 
         <div className="eyebrow sp">APPEARANCE</div>
         <Slider label="Opacity" value={e.opacity} min={0.1} max={1} step={0.05} format={v => `${Math.round(v * 100)}%`} onChange={v => set('opacity', v)} />
         <Group title="Outline" items={[['none', 'None'], ['thin', 'Thin'], ['bold', 'Bold']]} value={e.outline} reason={() => ''} onChange={v => set('outline', v)} />
         <Group title="Projection" items={PROJECTIONS[ds.region]} value={e.projection} reason={() => ''} onChange={v => set('projection', v)} />
+        <Group title="Basemap" items={[['none', 'None'], ['osm', 'OSM'], ['light', 'Light'], ['dark', 'Dark'], ['voyager', 'Voyager']]} value={e.basemap} reason={v => why.get(`basemap:${v}`) ?? ''} onChange={v => set('basemap', v)} />
         <p className="panel-foot">Each choice redraws the same data.</p>
+        <p className="data-source-link" style={{opacity: 0.75}}>© 2026 Peter Bak · <a href="https://visualanalytics.co.il" target="_blank" rel="noopener noreferrer" style={{color: 'inherit', textDecoration: 'underline'}}>VisualAnalytics</a></p>
       </aside>
 
       <main>
@@ -156,7 +184,14 @@ function Explorer({loaded, s, setS, onBusy}: {loaded: Loaded; s: Settings; setS:
             <span>{ds.title}</span>
           </div>
           <div className="chart-host" ref={hostRef} style={{height: size.h}}>
-            <MapView loaded={loaded} scene={scene} path={path} e={e} selected={selected} onSelect={onSelect} size={size} hostRef={hostRef} />
+            <MapView loaded={loaded} scene={scene} path={path} projection={projection} e={e} selected={selected} onSelect={onSelect} size={size} hostRef={hostRef} />
+            {t === 'flow' && (
+              <div className="map-chip">
+                {focus ? <>Flows {e.flowDirection === 'out' ? 'leaving' : e.flowDirection === 'in' ? 'arriving at' : 'to and from'} <b>{units.find(u => u.id === focus)?.name}</b>
+                  <button type="button" aria-label="Show all flows" onClick={() => setSelected(null)}>×</button></>
+                  : <>Click a station to show only its flows</>}
+              </div>
+            )}
             {busy && (
               <div className="progress" role="progressbar" aria-label="Computing cartogram layout" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress! * 100)}>
                 <span>Computing {e.variant.cartogram === 'demers' ? 'Demers' : 'Dorling'} layout · {Math.round(progress! * 100)}%</span>

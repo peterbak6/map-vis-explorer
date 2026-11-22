@@ -12,12 +12,12 @@ A classroom exploration tool, the spatial sibling of Time Vis Explorer. Students
 - Visual language: white, charcoal `#373335`, warm orange `#d94722` for active controls, muted context.
 
 ## Datasets
-Every dataset is reduced to the same contract (`src/types.ts`): a list of **features** (areas or points, each with raw numeric fields), a hierarchy of **levels** to aggregate to, a list of **measures** with explicit semantics, an optional **flow** table (origin, destination, counts), and a base map.
+Every dataset is standard GeoJSON (see DATA.md): **features** (points or polygons with numeric properties), optional **flows** (LineStrings with origin, destination, volume), and a description with a hierarchy of **levels**, **measures** with explicit semantics, and attribution.
 
 | Dataset | Geometry | Levels (fine → coarse) | Flows | Measures (kind) |
 | --- | --- | --- | --- | --- |
 | **US counties · ACS 2022 5-year** | areas (county polygons) | County → State | — | Population (count); White alone, Black alone, Asian alone, Hispanic/Latino (count); the same four as shares of population (ratio); Median household income (median) |
-| **Citi Bike · origin–destination trips** | points (stations) | Station → 400 m cluster → 1 km cluster | station → station trips | Trip starts, Trip ends (count); Net departures (signed count); Casual share of starts, E-bike share of starts (ratio) |
+| **Bergen Bysykkel · trips** | points (stations) | Station → 300 m cluster → 1 km cluster | station → station trips | Trip starts, Trip ends (count); Net departures (signed); Mean trip duration, Weekday 07–09 share, Round-trip share (ratio) |
 | **26th Knesset election · 27 Oct 2026** | points (localities) | Locality → Natural region → Sub-district → District | — | Eligible voters, Votes cast, Valid votes, Votes per party (count); Turnout, Invalid share, Party share (ratio); Leading party (category) |
 
 Measure kinds and their aggregation rules:
@@ -42,6 +42,9 @@ Five map type cards. Each has variant cards that appear only for that type.
 | **Flow** | Straight · Arc · Arrow | a flow table | OD lines at the chosen level, width ← trips, color ← volume. Top-N filter and self-flow exclusion |
 
 Availability rules (each with a visible reason):
+- Datasets can switch controls off in their description (`unavailable`), with a reason.
+- Time is disabled for datasets without weekday-hour slots.
+- From/To selected need a selected node; Net needs Direction All.
 - Flow is disabled for datasets without origin–destination data.
 - Choropleth on a point dataset offers only Voronoi areas; on an area dataset both.
 - Contiguous cartograms need ≤ 300 units ("Choose State to enable").
@@ -60,11 +63,13 @@ Implemented as pure functions in `src/pipeline/` and covered by tests. Renderers
 ## Controls (left panel, top → bottom)
 1. **Map type** — five cards with schematic thumbnails.
 2. **Variant** — cards for the selected map type.
+3. **Time** — Days (Mon–Sun toggles; All · Weekdays · Weekend) and From/To hour, for datasets whose flows carry weekday-hour slots. Flows and flow-derived measures (starts, ends, duration…) follow the filter in every map type.
 3. **Aggregation** — Level (segments), Summary (segments; options depend on the measure kind).
 4. **Color** — Measure (select), Classing (Continuous · Equal interval · Quantile · Natural breaks), Bins (3 · 5 · 7 · 9), Scale (Linear · Log · √), Palette (sequential / diverging / categorical swatches), Midpoint for diverging palettes (Median · Mean · Zero), Normalize (None · per km²) for counts on area-based maps.
 5. **Size** — Measure (count measures or Fixed), Max size slider. Symbol and cartogram area is always proportional to value; flow width is proportional to trips. Shown for symbol, cartogram and flow.
-6. **Map-type parameters** — Heatmap cell size / bandwidth; Flow Top-N; Cartogram iterations / spacing.
-7. **Appearance** — Opacity, Outline (None · Thin · Bold), Projection (per region).
+6. **Map-type parameters** — Heatmap cell size / bandwidth.
+7. **Flow** — Direction (All · From selected · To selected; click a station node to select), Mode (Gross · Net: only the dominant direction of each pair), Top flows.
+7. **Appearance** — Opacity, Outline (None · Thin · Bold), Projection (per region), Basemap (None · OSM · Light · Dark · Voyager; Mercator only, CARTO styles need a key).
 
 Above the map: dataset picker (header) and a measurement bar (the most common measures as chips, mirroring Time Vis Explorer).
 
@@ -78,6 +83,6 @@ Above the map: dataset picker (header) and a measurement bar (the most common me
 No tasks, quizzes, "lie" presets, bias explanations, saved views, comparison panels, export or sharing. (The old Spatial Bias Lab's pin gallery is not carried over; reconsider only if class discussion needs it.)
 
 ## Data requirements
-- Datasets are fixed bundled subsets; the app makes no external requests.
-- `scripts/` prepares every dataset reproducibly from source files placed in `data-raw/`. See DATA.md.
+- Datasets are fixed bundled subsets. The only external requests are optional basemap tiles (OSM, or CARTO with a key), available with the Mercator projection, with attribution on the map.
+- Datasets are static GeoJSON snapshots with provenance documented in DATA.md.
 - Attribution, vintage, and caveats are shown in the footer for each dataset.

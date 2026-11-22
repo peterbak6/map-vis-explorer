@@ -1,9 +1,10 @@
 import * as d3 from 'd3';
-import type {DatasetFile, LevelDef, MeasureDef, Settings, Unit} from '../types.ts';
+import type {Dataset, LevelDef, MeasureDef, Settings, Unit} from '../types.ts';
 import {measureValue, SUMMARY_LABELS} from './aggregate.ts';
 import {colorScale, NO_DATA, type ColorScale} from './color.ts';
 import {dougenik, flowPath, gridBins, hexBins, olsonScales, polygonPath, voronoiCells, densityGrid} from './geometry.ts';
 import {MAP_TYPES, PROJECTIONS, VARIANTS} from './options.ts';
+import {timeText} from './time.ts';
 
 type XY = [number, number];
 
@@ -20,6 +21,8 @@ export interface Mark {
   title: string;
   lines: string[];
   value: number | null;
+  /** Flow-map node: clickable focus, keeps its own fill. */
+  node?: boolean;
 }
 
 export interface SizeLegend { kind: 'circle' | 'square' | 'width'; items: {label: string; size: number}[] }
@@ -36,7 +39,7 @@ export interface Scene {
 }
 
 export interface SceneInput {
-  ds: DatasetFile;
+  ds: Dataset;
   units: Unit[];
   level: LevelDef;
   s: Settings;
@@ -47,6 +50,8 @@ export interface SceneInput {
   height: number;
   /** Dorling/Demers positions [x0,y0,x1,y1,…] for the units returned by cartogramStart; centroids when absent. */
   layout?: Float64Array | null;
+  /** Selected unit id; flows can be restricted to those leaving or entering it. */
+  focus?: string | null;
 }
 
 /** Starting marks for Dorling/Demers: unit index, centroid position and radius (half-side for squares). */
@@ -66,7 +71,7 @@ export function cartogramStart(inp: SceneInput) {
 
 /** Cache key for a Dorling/Demers layout: everything that moves marks, nothing that only colours them. */
 export const layoutKey = (inp: Pick<SceneInput, 's' | 'width' | 'height' | 'ds'>) =>
-  [inp.ds.id, inp.s.variant.cartogram, inp.s.level, inp.s.sizeMeasure, inp.s.projection, inp.width, inp.height, inp.s.maxSize].join('|');
+  [inp.ds.id, inp.s.variant.cartogram, inp.s.level, inp.s.sizeMeasure, inp.s.projection, inp.width, inp.height, inp.s.maxSize, inp.s.days.join(''), inp.s.hours.join('-')].join('|');
 
 const KM2 = 6371.0088 ** 2;
 
@@ -105,7 +110,8 @@ export function buildScene(inp: SceneInput): Scene {
   const variantLabel = VARIANTS[s.mapType].find(([v]) => v === variant)![1];
   const projLabel = PROJECTIONS[ds.region].find(([p]) => p === s.projection)?.[1] ?? s.projection;
   const classText = m.kind === 'category' ? 'categorical' : s.classing === 'continuous' ? `continuous ${s.scale}` : `${s.classing === 'jenks' ? 'natural breaks' : s.classing === 'equal' ? 'equal interval' : 'quantile'} · ${s.bins} classes${s.classing !== 'quantile' && s.scale !== 'linear' ? ` · ${s.scale}` : ''}`;
-  const title = s.mapType === 'flow' ? `Trips between ${level.label.toLowerCase()} units` : `${m.label}${perArea ? ' per km²' : ''} · ${level.label}${summaryText}`;
+  const when = ds.time ? timeText(s) : '';
+  const title = (s.mapType === 'flow' ? `Trips between ${level.label.toLowerCase()} units` : `${m.label}${perArea ? ' per km²' : ''} · ${level.label}${summaryText}`) + (when ? ` · ${when}` : '');
   let subtitle = `${typeLabel} (${variantLabel.toLowerCase()}) · ${levelText} · ${s.mapType === 'flow' ? `top ${s.topN} flows` : classText} · ${projLabel}`;
 
   const tip = (u: Unit, v: number | null, extra: string[] = []) => {
@@ -133,15 +139,31 @@ export function buildScene(inp: SceneInput): Scene {
     const unitOf = new Map<string, number>();
     units.forEach((u, i) => u.members.forEach(f => unitOf.set(f.id, i)));
     const od = new Map<string, {a: number; b: number; n: number}>();
-    for (const [o, d, n] of ds.flows ?? []) {
-      const a = unitOf.get(o), b = unitOf.get(d);
-      if (a == null || b == null || a === b || !(n > 0)) continue;
-      const k = `${a}>${b}`; const r = od.get(k) ?? {a, b, n: 0}; r.n += n as number; od.set(k, r);
+    const nodeOut = new Float64Array(units.length), nodeIn = new Float64Array(units.length);
+    for (const f of ds.flows ?? []) {
+      const a = unitOf.get(f.o), b = unitOf.get(f.d);
+      if (a == null || b == null || !(f.n > 0)) continue;
+      nodeOut[a] += f.n; nodeIn[b] += f.n;
+      if (a === b) continue; // round trips and trips within one cluster have no line
+      const k = `${a}>${b}`; const r = od.get(k) ?? {a, b, n: 0}; r.n += f.n; od.set(k, r);
     }
-    const all = [...od.values()].sort((x, y) => y.n - x.n);
+    let all = [...od.values()];
+    if (s.flowMode === 'net') {
+      const net = new Map<string, {a: number; b: number; n: number}>();
+      for (const r of all) {
+        const lo = Math.min(r.a, r.b), hi = Math.max(r.a, r.b), k = `${lo}|${hi}`;
+        const x = net.get(k) ?? {a: lo, b: hi, n: 0};
+        x.n += r.a === lo ? r.n : -r.n; net.set(k, x);
+      }
+      all = [...net.values()].filter(x => x.n !== 0).map(x => (x.n > 0 ? x : {a: x.b, b: x.a, n: -x.n}));
+    }
+    const fi = inp.focus ? units.findIndex(u => u.id === inp.focus) : -1;
+    // A selected station restricts flows to those touching it.
+    if (fi >= 0) all = all.filter(r => (s.flowDirection === 'out' ? r.a === fi : s.flowDirection === 'in' ? r.b === fi : r.a === fi || r.b === fi));
+    all.sort((x, y) => y.n - x.n);
     const flows = all.slice(0, s.topN).reverse();
     const vals = flows.map(f => f.n);
-    const color = colorScale(vals, {...s, palette: s.palette === 'Oranges' ? 'Oranges' : s.palette});
+    const color = colorScale(vals, s);
     const wScale = d3.scaleLinear().domain([0, d3.max(vals) || 1]).range([0, s.maxSize / 2]);
     const marks: Mark[] = [];
     for (const f of flows) {
@@ -150,10 +172,18 @@ export function buildScene(inp: SceneInput): Scene {
       const w = Math.max(0.5, wScale(f.n));
       marks.push({id: `${units[f.a].id}>${units[f.b].id}`, shape: 'path', d: flowPath(a, b, variant as 'straight', w),
         fill: variant === 'arrow' ? color.color(f.n) : 'none', stroke: variant === 'arrow' ? 'none' : color.color(f.n), strokeWidth: variant === 'arrow' ? 0 : w,
-        title: `${name(units[f.a])} → ${name(units[f.b])}`, lines: [`${d3.format(',')(f.n)} trips`], value: f.n});
+        title: `${name(units[f.a])} → ${name(units[f.b])}`, lines: [`${d3.format(',')(f.n)} ${s.flowMode === 'net' ? 'more trips than the reverse direction' : f.n === 1 ? 'trip' : 'trips'}`], value: f.n});
     }
-    subtitle += ` · ${d3.format(',')(all.length)} flows total, self-flows excluded`;
-    return {marks, color, title, subtitle, size: {kind: 'width', items: d3.ticks(0, wScale.domain()[1], 3).filter(t => t > 0).slice(-3).map(t => ({label: `${d3.format(',')(t)} trips`, size: wScale(t) * 2}))}};
+    // Nodes: one per unit, sized by trips leaving + arriving; click a node to focus flows on it.
+    const nScale = d3.scaleSqrt().domain([0, d3.max(units, (_, i) => nodeOut[i] + nodeIn[i]) || 1]).range([1.5, 7]);
+    units.forEach((u, i) => {
+      const p = pts[i]; if (!p) return;
+      marks.push({id: u.id, shape: 'circle', x: p[0], y: p[1], r: nScale(nodeOut[i] + nodeIn[i]), fill: i === fi ? '#d94722' : '#373335', stroke: '#fff', strokeWidth: 0.8, node: true,
+        title: u.name, lines: [`${d3.format(',')(nodeOut[i])} trips leaving`, `${d3.format(',')(nodeIn[i])} trips arriving`, i === fi ? 'Click again to show all flows' : 'Click to show only this station’s flows'], value: null});
+    });
+    const focusText = fi >= 0 ? ` · ${s.flowDirection === 'out' ? 'leaving' : s.flowDirection === 'in' ? 'arriving at' : 'to and from'} ${units[fi].name}` : '';
+    subtitle += `${focusText} · ${s.flowMode} · ${d3.format(',')(all.length)} flows, within-unit trips excluded`;
+    return {marks, color, title, subtitle, size: {kind: 'width', items: d3.ticks(0, wScale.domain()[1], 3).filter(t => t > 0 && Number.isInteger(t)).slice(-3).map(t => ({label: `${d3.format(',')(t)} trip${t === 1 ? '' : 's'}`, size: Math.max(0.5, wScale(t))}))}};
   }
 
   // ---------- Heatmap ----------

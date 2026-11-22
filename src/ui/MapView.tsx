@@ -6,12 +6,15 @@ import type {LevelDef, Settings, Unit} from '../types.ts';
 import {makeProjection} from '../pipeline/geometry.ts';
 import {buildScene, cartogramStart, layoutKey, type Scene, type SceneInput} from '../pipeline/scene.ts';
 import {SEPARATE_TICKS} from '../pipeline/geometry.ts';
+import {BASEMAPS, tilesFor, tileUrl, type BasemapId} from '../pipeline/tiles.ts';
+
+const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? '';
 
 type XY = [number, number];
 const ACCENT = '#d94722';
 const OUTSIDE_LOWER48 = new Set(['02', '15']);
 
-export function useScene(loaded: Loaded, units: Unit[], level: LevelDef, e: Settings, size: {w: number; h: number}) {
+export function useScene(loaded: Loaded, units: Unit[], level: LevelDef, e: Settings, size: {w: number; h: number}, focus: string | null = null) {
   const {ds, base} = loaded;
   const projection = useMemo(() => {
     let fit: Feature<Geometry> | GeoJSON.FeatureCollection<Geometry>;
@@ -29,7 +32,8 @@ export function useScene(loaded: Loaded, units: Unit[], level: LevelDef, e: Sett
     ds, units, level, s: e, path, width: size.w, height: size.h,
     project: p => (projection(p) as XY | null) ?? null,
     invert: p => (projection.invert?.(p) as XY | null) ?? null,
-  }), [ds, units, level, e, path, projection, size.w, size.h]);
+    focus,
+  }), [ds, units, level, e, path, projection, size.w, size.h, focus]);
   const {layout, progress} = useCartogramLayout(input);
   const scene = useMemo<Scene>(() => buildScene({...input, layout}), [input, layout]);
   return {projection, path, scene, progress};
@@ -70,8 +74,8 @@ function useCartogramLayout(inp: SceneInput): {layout: Float64Array | null; prog
   return {layout: state.xy, progress: state.progress};
 }
 
-export function MapView({loaded, scene, path, e, selected, onSelect, size, hostRef}: {
-  loaded: Loaded; scene: Scene; path: d3.GeoPath; e: Settings; selected: string | null; onSelect: (id: string | null) => void;
+export function MapView({loaded, scene, path, projection, e, selected, onSelect, size, hostRef}: {
+  loaded: Loaded; scene: Scene; path: d3.GeoPath; projection: d3.GeoProjection; e: Settings; selected: string | null; onSelect: (id: string | null) => void;
   size: {w: number; h: number}; hostRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -88,11 +92,23 @@ export function MapView({loaded, scene, path, e, selected, onSelect, size, hostR
     const landPath = base.features.map(f => path(f) ?? '').join('');
     defs.append('clipPath').attr('id', 'land').append('path').attr('d', landPath);
     svg.append('rect').attr('width', w).attr('height', h).attr('fill', 'transparent').on('click', () => onSelect(null));
+    // Web map tiles sit outside the zoom group and are re-requested at each zoom level, so they stay sharp.
+    const tileG = svg.append('g').attr('class', 'tiles').attr('pointer-events', 'none');
+    if (e.basemap !== 'none' && BASEMAPS[e.basemap].muted) tileG.attr('class', 'tiles muted');
+    const basemap = e.basemap !== 'none' ? BASEMAPS[e.basemap] : null;
+    const retina = window.devicePixelRatio > 1;
+    const drawTiles = (t: d3.ZoomTransform) => {
+      if (!basemap) return;
+      const tiles = tilesFor(projection.scale(), projection.translate(), t, w, h, (z, x, y) => tileUrl(e.basemap as BasemapId, z, x, y, retina, CARTO_KEY));
+      tileG.selectAll<SVGImageElement, (typeof tiles)[number]>('image').data(tiles, d => d.key)
+        .join(en => en.append('image').attr('href', d => d.url).attr('preserveAspectRatio', 'none'))
+        .attr('x', d => d.x).attr('y', d => d.y).attr('width', d => d.size + 0.5).attr('height', d => d.size + 0.5);
+    };
     const zoomG = svg.append('g').attr('class', 'zoom-layer');
 
-    // Base map: land plus internal borders, muted.
+    // Base map: land plus internal borders, muted (hidden under web tiles).
     const baseG = zoomG.append('g').attr('pointer-events', 'none');
-    baseG.append('path').attr('d', landPath).attr('fill', '#f1eee9');
+    if (!basemap) baseG.append('path').attr('d', landPath).attr('fill', '#f1eee9');
     if (outline) baseG.append('path').attr('d', path(outline) ?? '').attr('fill', 'none').attr('stroke', '#d6cfc6').attr('stroke-width', 0.6).attr('vector-effect', 'non-scaling-stroke');
 
     if (scene.raster) {
@@ -139,20 +155,26 @@ export function MapView({loaded, scene, path, e, selected, onSelect, size, hostR
       .on('focus', (ev, d) => showTip(ev, d)).on('blur', () => setTip(null))
       .on('click', (ev, d) => { ev.stopPropagation(); onSelect(selected === d.id ? null : d.id); })
       .on('keydown', (ev: KeyboardEvent, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(selected === d.id ? null : d.id); } });
-    if (selected) {
+    const selMark = scene.marks.find(m => m.id === selected);
+    if (selected && selMark?.node) {
+      // Flow nodes focus the flows (see Direction); keep flows visible and ring the node.
+      ent.filter(d => d.id === selected).raise().attr('stroke', ACCENT).attr('stroke-width', 2.5);
+    } else if (selected) {
       ent.attr('opacity', d => (d.id === selected ? 1 : 0.28));
       ent.filter(d => d.id === selected).raise().attr('stroke', isFlow ? ACCENT : ACCENT).attr('stroke-width', d => (isFlow ? d.strokeWidth! + 1 : 1.8)).attr('vector-effect', 'non-scaling-stroke');
     }
 
     const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([1, 14]).translateExtent([[0, 0], [w, h]])
-      .on('zoom', ev => { transformRef.current = ev.transform; zoomG.attr('transform', ev.transform.toString()); });
+      .on('zoom', ev => { transformRef.current = ev.transform; zoomG.attr('transform', ev.transform.toString()); drawTiles(ev.transform); });
     svg.call(zoom).on('dblclick.zoom', null).on('dblclick', () => svg.transition().duration(350).call(zoom.transform, d3.zoomIdentity));
     svg.call(zoom.transform, transformRef.current);
-  }, [scene, path, base, outline, ds, e, selected, onSelect, size, hostRef]);
+    drawTiles(transformRef.current);
+  }, [scene, path, projection, base, outline, ds, e, selected, onSelect, size, hostRef]);
 
   return (
     <>
       <svg ref={svgRef} width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`} role="group" aria-label={scene.title} />
+      {e.basemap !== 'none' && <div className="attribution">{BASEMAPS[e.basemap].attribution.map((a, i) => <a key={i} href={a.href} target="_blank" rel="noreferrer">{a.label}</a>)}</div>}
       {tip && <div className="tooltip" style={{left: tip.x, top: tip.y}}><strong>{tip.title}</strong>{tip.lines.map((l, i) => <span key={i}>{l}</span>)}</div>}
     </>
   );

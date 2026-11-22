@@ -1,0 +1,99 @@
+{
+ "id": "bergen",
+ "title": "Bergen Bysykkel · trips",
+ "subtitle": "Bergen city bike trips · 1 Jul 2026 – 31 Jul 2026 · 20,473 trips",
+ "region": "bergen",
+ "geometry": "points",
+ "features": "bergen/stations.geojson",
+ "flows": "bergen/flows.geojson",
+ "flowField": "trips",
+ "time": {
+  "slots": "slots",
+  "slotFields": [
+   "trips",
+   "durationMin"
+  ],
+  "basis": "trip start, Europe/Oslo local time"
+ },
+ "flowDerived": {
+  "starts": "out:trips",
+  "ends": "in:trips",
+  "net": "net:trips",
+  "durationMin": "out:durationMin",
+  "roundTrips": "self:trips"
+ },
+ "unavailable": {
+  "variant:noncontiguous": "Stations are points without areas. Use Dorling or Demers."
+ },
+ "fields": [
+  "starts",
+  "ends",
+  "net",
+  "durationMin",
+  "roundTrips"
+ ],
+ "levels": [
+  {
+   "id": "station",
+   "label": "Station"
+  },
+  {
+   "id": "c300",
+   "label": "300 m cluster",
+   "cluster": 300
+  },
+  {
+   "id": "c1k",
+   "label": "1 km cluster",
+   "cluster": 1000
+  }
+ ],
+ "measures": [
+  {
+   "id": "starts",
+   "label": "Trip starts",
+   "kind": "count",
+   "field": "starts",
+   "unit": "trips"
+  },
+  {
+   "id": "ends",
+   "label": "Trip ends",
+   "kind": "count",
+   "field": "ends",
+   "unit": "trips"
+  },
+  {
+   "id": "net",
+   "label": "Net departures",
+   "kind": "signed",
+   "field": "net",
+   "unit": "trips"
+  },
+  {
+   "id": "duration",
+   "label": "Mean trip duration (min)",
+   "kind": "ratio",
+   "num": "durationMin",
+   "den": "starts",
+   "format": "number"
+  },
+  {
+   "id": "round",
+   "label": "Round-trip share",
+   "kind": "ratio",
+   "num": "roundTrips",
+   "den": "starts",
+   "format": "percent"
+  }
+ ],
+ "defaults": {
+  "measure": "starts",
+  "sizeMeasure": "starts",
+  "projection": "mercator",
+  "basemap": "osm"
+ },
+ "source": "https://bergenbysykkel.no/en/open-data/historical",
+ "attribution": "Bergen Bysykkel / Urban Sharing · Norwegian Licence for Open Government Data (NLOD) 2.0",
+ "note": "0 records without stations or with non-positive duration were skipped. Station positions are medians of reported coordinates. Time filters use the trip start in Europe/Oslo local time. Flows connect stations; they are not routes."
+}

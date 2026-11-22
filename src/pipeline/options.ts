@@ -1,4 +1,4 @@
-import type {DatasetFile, MapType, MeasureDef, Region, Settings, Summary, Variant} from '../types.ts';
+import type {Dataset, MapType, MeasureDef, Region, Settings, Summary, Variant} from '../types.ts';
 import {summariesFor} from './aggregate.ts';
 import {palette} from './color.ts';
 
@@ -14,12 +14,12 @@ export const VARIANTS: Record<MapType, [Variant, string][]> = {
 };
 export const PROJECTIONS: Record<Region, [string, string][]> = {
   us: [['albersUsa', 'Albers USA'], ['albers', 'Albers'], ['mercator', 'Mercator'], ['equirect', 'Plate carrée']],
-  nyc: [['mercator', 'Mercator'], ['equirect', 'Plate carrée']],
+  bergen: [['utm', 'UTM 32N'], ['mercator', 'Mercator'], ['equirect', 'Plate carrée']],
   israel: [['tm', 'Transverse Merc.'], ['mercator', 'Mercator'], ['equirect', 'Plate carrée']],
 };
 export const CONTIGUOUS_LIMIT = 300;
 
-export const initialSettings = (ds: DatasetFile): Settings => ({
+export const initialSettings = (ds: Dataset): Settings => ({
   mapType: 'choropleth',
   variant: {symbol: 'circle', choropleth: ds.geometry === 'areas' ? 'native' : 'voronoi', cartogram: 'dorling', heatmap: 'hex', flow: 'arc'},
   level: ds.levels[0].id,
@@ -37,7 +37,12 @@ export const initialSettings = (ds: DatasetFile): Settings => ({
   topN: 150,
   opacity: 0.9,
   outline: 'thin',
-  projection: PROJECTIONS[ds.region][0][0],
+  projection: ds.defaults?.projection ?? PROJECTIONS[ds.region][0][0],
+  basemap: ds.defaults?.basemap ?? 'none',
+  days: [0, 1, 2, 3, 4, 5, 6],
+  hours: [0, 24],
+  flowDirection: 'both',
+  flowMode: 'gross',
 });
 
 /** Reasons keyed `control:value`; an empty string or absence means available. */
@@ -48,6 +53,10 @@ export interface Context {
   unitCounts: Record<string, number>;
   /** Smallest displayed colour value (after structure is resolved), for log-scale availability. */
   minValue?: number;
+  /** Unit currently selected on the map (flow direction filters need one). */
+  focus?: string | null;
+  /** Whether a CARTO basemap API key was configured at build time. */
+  cartoKey?: boolean;
 }
 
 const isSize = (m: MeasureDef) => m.kind === 'count';
@@ -63,10 +72,13 @@ export function colorMeasureReason(m: MeasureDef, mapType: MapType): string {
  * Resolve user settings into effective settings for a dataset, recording why options are unavailable.
  * Settings the user chose are kept; only effective values fall back when a choice no longer applies.
  */
-export function resolve(ds: DatasetFile, s: Settings, ctx: Context): {e: Settings; why: Reasons} {
-  const why: Reasons = new Map();
+export function resolve(ds: Dataset, s: Settings, ctx: Context): {e: Settings; why: Reasons} {
+  const why: Reasons = new Map(Object.entries(ds.unavailable ?? {}));
   const e: Settings = {...s, variant: {...s.variant}};
   const points = ds.geometry === 'points';
+
+  // Time filter: only for datasets whose flows carry weekday-hour slots.
+  if (!ds.time) { why.set('time:', 'This dataset has no time of day or weekday.'); e.days = [0, 1, 2, 3, 4, 5, 6]; e.hours = [0, 24]; }
 
   // Map type
   if (!ds.flows?.length) why.set('mapType:flow', 'This dataset has no origin–destination table. Choose a dataset with trips.');
@@ -132,7 +144,19 @@ export function resolve(ds: DatasetFile, s: Settings, ctx: Context): {e: Setting
   const sm = measures.find(x => x.id === e.sizeMeasure);
   if ((e.sizeMeasure && (!sm || !isSize(sm))) || why.get(`size:${e.sizeMeasure}`)) e.sizeMeasure = measures.find(isSize)?.id ?? '';
 
+  // Flow direction and mode
+  if (e.mapType !== 'flow') for (const k of ['both', 'out', 'in', 'gross', 'net']) why.set(`flow:${k}`, 'Applies to Flow maps.');
+  else if (!ctx.focus) for (const k of ['both', 'out', 'in']) why.set(`flow:${k}`, 'Click a station on the map to show only its flows.');
+  if (why.get(`flow:${e.flowDirection}`) && e.mapType === 'flow' && ctx.focus) e.flowDirection = 'both';
+  if (e.mapType === 'flow' && ctx.focus && e.flowMode === 'net' && e.flowDirection !== 'both') why.set('flow:net', 'Net compares both directions of each pair. Choose Both.');
+  if (why.get(`flow:${e.flowMode}`)) e.flowMode = 'gross';
+
   // Projection must belong to the region
   if (!PROJECTIONS[ds.region].some(([p]) => p === e.projection)) e.projection = PROJECTIONS[ds.region][0][0];
+
+  // Web map tiles are Web Mercator: they only line up with the Mercator projection.
+  if (e.projection !== 'mercator') for (const b of ['osm', 'light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'Web map tiles use Web Mercator. Choose the Mercator projection.');
+  else if (!ctx.cartoKey) for (const b of ['light', 'dark', 'voyager']) why.set(`basemap:${b}`, 'CARTO tiles need a free API key (VITE_CARTO_KEY, see README). OSM works without one.');
+  if (why.get(`basemap:${e.basemap}`)) e.basemap = 'none';
   return {e, why};
 }
