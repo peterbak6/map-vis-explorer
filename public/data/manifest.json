@@ -1,0 +1,5 @@
+[
+  {"id": "acs", "title": "US counties · ACS 2022", "file": "acs.json", "status": "ready"},
+  {"id": "citibike", "title": "Citi Bike · origin–destination trips", "status": "planned"},
+  {"id": "knesset26", "title": "26th Knesset election · 2026", "status": "planned"}
+]
